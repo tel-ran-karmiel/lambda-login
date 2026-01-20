@@ -1,0 +1,14 @@
+{
+  "name": "cognito-security",
+  "version": "1.0.0",
+  "description": "Getting access, id, refresh tokens",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "index.ts",
+  
+  "dependencies": {
+    
+    "pino": "^10.1.1"
+  }
+}
