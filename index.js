@@ -14,7 +14,7 @@ const logger = pino({
 
 export async function handler(event) {
   logger.debug(`received body is ${event.body}`);
-
+  let result;
   try {
     const clientId = getClientId();
 
@@ -25,27 +25,38 @@ export async function handler(event) {
     const data = JSON.parse(event.body); //in the case of parsing error error.name=="Syntax Error"
     const { username, password } = getUsernamePassword(data);
 
-
     logger.debug({ username }, "auth request received");
 
     const client = new CognitoIdentityProviderClient({});
-    const resp = await initialAuthentication(clientId, client, username, password);
+    const resp = await initialAuthentication(
+      clientId,
+      client,
+      username,
+      password,
+    );
 
     if (resp.AuthenticationResult) {
       logger.debug({ username }, "authenticated without challenge");
-      return responseTokens(resp.AuthenticationResult);
+      result = responseTokens(resp.AuthenticationResult);
+    } else {
+      logger.debug(
+        { username, challenge: resp.ChallengeName },
+        "challenge returned",
+      );
+      const newPassword = getNewPassword(data);
+      const resp2 = await respondAuthentication(
+        clientId,
+        resp,
+        client,
+        username,
+        newPassword,
+      );
+      result =  responseTokens(resp2.AuthenticationResult);
     }
-
-    logger.debug({ username, challenge: resp.ChallengeName }, "challenge returned");
-
-    const newPassword = getNewPassword(data);
-    
-
-    const resp2 = await respondAuthentication(clientId, resp, client, username, newPassword);
-    return responseTokens(resp2.AuthenticationResult);
   } catch (error) {
-    return responseError(error);
+    result = responseError(error);
   }
+  return result;
 }
 
 function getClientId() {
@@ -56,7 +67,7 @@ function getClientId() {
 
 function getUsernamePassword(data) {
   const username = data?.username || "";
-  const password = data?.password || ""
+  const password = data?.password || "";
   return { username, password };
 }
 
@@ -71,9 +82,9 @@ async function initialAuthentication(clientId, client, username, password) {
 
 function responseTokens(authenticationResult) {
   const bodyObj = {
-    access_token: authenticationResult?.AccessToken,
-    id_token: authenticationResult?.IdToken,
-    refresh_token: authenticationResult?.RefreshToken,
+    access_token: authenticationResult.AccessToken,
+    id_token: authenticationResult.IdToken,
+    refresh_token: authenticationResult.RefreshToken,
   };
   return response(200, bodyObj);
 }
@@ -82,7 +93,13 @@ function getNewPassword(data) {
   return data?.new_password || "";
 }
 
-async function respondAuthentication(clientId, resp, client, username, newPassword) {
+async function respondAuthentication(
+  clientId,
+  resp,
+  client,
+  username,
+  newPassword,
+) {
   if (resp?.ChallengeName !== "NEW_PASSWORD_REQUIRED") {
     throw new Error(`Unknown Challenge Name ${resp?.ChallengeName}`);
   }
@@ -98,7 +115,8 @@ async function respondAuthentication(clientId, resp, client, username, newPasswo
 }
 
 function responseError(error) {
-  const statusCode = error?.$fault === "client" || error.name==="SyntaxError" ? 400 : 500;
+  const statusCode =
+    error?.$fault === "client" || error.name === "SyntaxError" ? 400 : 500;
   const message = error.message ?? "Unknown error";
 
   logger.error({ err: error }, "handler error");
